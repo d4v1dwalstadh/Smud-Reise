@@ -1,3 +1,3 @@
-# Egne-Prosjekter
-- Prosjekter bygget gjennom min tid på studie, før og etter
-- Laget på egen tid, alene og med guttas gode ideer
+# Smud Reise
+- Enkel reise planlegger som tar høyde for deg og dit transportmiddel.
+- Tar høyde for lave broer, smale veier og andre hindringer.
