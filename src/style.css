@@ -11,14 +11,15 @@ html, body, #root {
   height: 100%;
   z-index: 0;
   position: relative;
-  overflow: visible;
+  overflow: hidden;
 }
+
 
 /* Flytt zoomkontrollene til nederst til venstre */
 .leaflet-control-zoom {
   position: absolute;
   left: 20px;
-  top: 87vh; /* Viktig for å overstyre eventuell top-verdi */
+  top: 740px; /* Viktig for å overstyre eventuell top-verdi */
   z-index: 1000;
 }
 
@@ -68,5 +69,10 @@ html, body, #root {
 
 .results li:hover {
   background-color: #eee;
+}
+
+.leaflet-container {
+  transform-origin: center center;
+  transition: transform 0.3s ease;
 }
 
