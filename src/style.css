@@ -76,3 +76,33 @@ html, body, #root {
   transition: transform 0.3s ease;
 }
 
+.vehicle-input {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1200;
+  background-color: white;
+  padding: 8px 12px;
+  border-radius: 6px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+  display: flex;
+  gap: 12px;
+  font-size: 14px;
+  align-items: center;
+}
+
+.vehicle-input label {
+  display: flex;
+  flex-direction: column;
+  font-weight: bold;
+  font-size: 12px;
+}
+
+.vehicle-input input {
+  padding: 4px;
+  width: 60px;
+  font-size: 14px;
+}
+
+

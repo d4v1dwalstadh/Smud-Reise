@@ -1,0 +1,72 @@
+[
+  {
+    "id": 1,
+    "name": "Nesbru bru vest",
+    "lat": 59.8290,
+    "lon": 10.4470,
+    "clearance": 4.5
+  },
+  {
+    "id": 2,
+    "name": "Nesbruveien bru",
+    "lat": 59.8302,
+    "lon": 10.4523,
+    "clearance": 3.8
+  },
+  {
+    "id": 3,
+    "name": "Ramstadsletta bru",
+    "lat": 59.8380,
+    "lon": 10.4310,
+    "clearance": 4.2
+  },
+  {
+    "id": 4,
+    "name": "Engervann bru",
+    "lat": 59.8388,
+    "lon": 10.4225,
+    "clearance": 3.5
+  },
+  {
+    "id": 5,
+    "name": "Vakås bru",
+    "lat": 59.8460,
+    "lon": 10.4100,
+    "clearance": 4.0
+  },
+  {
+    "id": 6,
+    "name": "Kolsåsveien bru",
+    "lat": 59.8550,
+    "lon": 10.4000,
+    "clearance": 3.6
+  },
+  {
+    "id": 7,
+    "name": "Odderøya bru",
+    "lat": 59.8485,
+    "lon": 10.3800,
+    "clearance": 4.1
+  },
+  {
+    "id": 8,
+    "name": "Fornebu bru",
+    "lat": 59.8960,
+    "lon": 10.6300,
+    "clearance": 3.9
+  },
+  {
+    "id": 9,
+    "name": "Lysakerelva bru",
+    "lat": 59.9100,
+    "lon": 10.6380,
+    "clearance": 3.4
+  },
+  {
+    "id": 10,
+    "name": "Lorenskog bru",
+    "lat": 59.9000,
+    "lon": 10.6200,
+    "clearance": 4.8
+  }
+]

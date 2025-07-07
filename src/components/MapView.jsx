@@ -1,7 +1,8 @@
-import { MapContainer, TileLayer, Marker, Polyline, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Polyline, useMap, } from "react-leaflet";
 import { useEffect, useState, useRef } from "react";
 import L from "leaflet";
 import SearchBox from "./SearchBox";
+import bridges from "../data/bridges.json";
 
 const ORS_API_KEY = "5b3ce3597851110001cf6248bd7caf0c7da04779b64619b78105940c";
 
@@ -13,7 +14,15 @@ function MapUpdater({ coords }) {
   return null;
 }
 
-function MapView() {
+function SetMapRef({ mapRef }) {
+  const map = useMap();
+  useEffect(() => {
+    mapRef.current = map;
+  }, [map]);
+  return null;
+}
+
+function MapView({ vehicle }) {
   const [userLocation, setUserLocation] = useState(null);
   const [destination, setDestination] = useState(null);
   const [route, setRoute] = useState(null);
@@ -21,16 +30,13 @@ function MapView() {
   const [heading, setHeading] = useState(0);
   const mapRef = useRef();
 
-  // Start å følge bruker
   const startFollow = () => {
-    console.log(mapRef.current)
     setFollow(true);
     if (userLocation && mapRef.current) {
       mapRef.current.flyTo(userLocation, 16);
     }
   };
 
-  // Oppdater brukerens posisjon kontinuerlig
   useEffect(() => {
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
@@ -39,7 +45,6 @@ function MapView() {
         if (pos.coords.heading !== null) {
           setHeading(pos.coords.heading);
         }
-
         if (follow && mapRef.current) {
           mapRef.current.flyTo(coords, mapRef.current.getZoom());
         }
@@ -51,7 +56,26 @@ function MapView() {
     return () => navigator.geolocation.clearWatch(watchId);
   }, [follow]);
 
-  // Hent rute ved endring
+  function isRouteTooLow(routeCoords, vehicleHeight) {
+    if (!vehicleHeight) return false;
+    const threshold = 0.001; // ca. 100m radius
+
+    for (let bridge of bridges) {
+      if (bridge.clearance < vehicleHeight) {
+        const [bridgeLat, bridgeLng] = bridge.coordinates;
+        for (let [lat, lng] of routeCoords) {
+          const dLat = Math.abs(lat - bridgeLat);
+          const dLng = Math.abs(lng - bridgeLng);
+          if (dLat < threshold && dLng < threshold) {
+            console.warn("Rute krysser lav bro:", bridge.name);
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
   useEffect(() => {
     const getRoute = async () => {
       if (!userLocation || !destination) return;
@@ -79,37 +103,30 @@ function MapView() {
       const coords = data.features[0].geometry.coordinates.map(
         ([lng, lat]) => [lat, lng]
       );
-      setRoute(coords);
+
+      const tooLow = isRouteTooLow(coords, vehicle?.height);
+      if (tooLow) {
+        alert("Ruten inneholder en bro som er for lav for kjøretøyet ditt.");
+        setRoute(null);
+      } else {
+        setRoute(coords);
+      }
     };
 
     getRoute();
-  }, [userLocation, destination]);
+  }, [userLocation, destination, vehicle]);
 
-  // Roter kartet i retning (CSS transform)
   useEffect(() => {
     if (!follow || heading === null) return;
-
     const container = document.querySelector(".leaflet-container");
     if (container) {
       container.style.transition = "transform 0.3s ease";
       container.style.transform = `rotate(${-heading}deg)`;
     }
-
     return () => {
       if (container) container.style.transform = "none";
     };
   }, [heading, follow]);
-
-  function SetMapRef({ mapRef }) {
-    const map = useMap();
-
-    useEffect(() => {
-      mapRef.current = map;
-    }, [map]);
-
-    return null;
-  }
-
 
   return (
     <div>
@@ -118,7 +135,7 @@ function MapView() {
         onSelectPlace={(place) => {
           const [lon, lat] = place.geometry.coordinates;
           setDestination([lat, lon]);
-          setFollow(false); // Slutt å følge når ny destinasjon velges
+          setFollow(false);
         }}
       />
 
@@ -141,7 +158,6 @@ function MapView() {
         Følg meg
       </button>
 
-      {/* Kart */}
       <MapContainer
         center={[59.91, 10.75]}
         zoom={13}
