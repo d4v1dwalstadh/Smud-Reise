@@ -1,4 +1,5 @@
 // ikke i bruk
+// selve ruteplanleggeren og søkefeltet
 
 import { MapContainer, TileLayer, Marker, Polyline, useMap } from "react-leaflet";
 import { useEffect, useState, useRef } from "react";
