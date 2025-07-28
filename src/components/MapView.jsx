@@ -28,12 +28,26 @@ function MapView({ vehicle }) {
   const [route, setRoute] = useState(null);
   const [follow, setFollow] = useState(false);
   const [heading, setHeading] = useState(0);
+  const [accuracy, setAccuracy] = useState(null);
+  const [isMoving, setIsMoving] = useState(false);
   const mapRef = useRef();
+  const lastPositionRef = useRef(null);
+  const movementTimeoutRef = useRef(null);
 
   const startFollow = () => {
     setFollow(true);
     if (userLocation && mapRef.current) {
-      mapRef.current.flyTo(userLocation, 16);
+      mapRef.current.flyTo(userLocation, 17); // Litt nærmere zoom når vi følger
+    }
+  };
+
+  const stopFollow = () => {
+    setFollow(false);
+    // Fjern eventuell rotasjon når vi slutter å følge
+    const container = document.querySelector(".leaflet-container");
+    if (container) {
+      container.style.transform = "none";
+      container.style.transition = "transform 0.5s ease";
     }
   };
 
@@ -41,20 +55,66 @@ function MapView({ vehicle }) {
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
         const coords = [pos.coords.latitude, pos.coords.longitude];
+        
+        // Sjekk om vi beveger oss
+        if (lastPositionRef.current) {
+          const distance = calculateDistance(lastPositionRef.current, coords);
+          if (distance > 0.5) { // 0.5 meter bevegelse
+            setIsMoving(true);
+            clearTimeout(movementTimeoutRef.current);
+            movementTimeoutRef.current = setTimeout(() => {
+              setIsMoving(false);
+            }, 3000); // Stopp bevegelse-animasjon etter 3 sekunder
+          }
+        }
+        
         setUserLocation(coords);
-        if (pos.coords.heading !== null) {
+        setAccuracy(pos.coords.accuracy);
+        lastPositionRef.current = coords;
+        
+        // Oppdater retning hvis tilgjengelig
+        if (pos.coords.heading !== null && pos.coords.heading !== undefined) {
           setHeading(pos.coords.heading);
         }
+        
+        // Følg bruker med smooth animasjon
         if (follow && mapRef.current) {
-          mapRef.current.flyTo(coords, mapRef.current.getZoom());
+          const currentZoom = mapRef.current.getZoom();
+          mapRef.current.flyTo(coords, Math.max(currentZoom, 16), {
+            duration: 1.5,
+            easeLinearity: 0.25
+          });
         }
       },
       (err) => console.error("Geolocation error:", err),
-      { enableHighAccuracy: true, maximumAge: 1000, timeout: 5000 }
+      { 
+        enableHighAccuracy: true, 
+        maximumAge: 1000, 
+        timeout: 10000 
+      }
     );
 
-    return () => navigator.geolocation.clearWatch(watchId);
+    return () => {
+      navigator.geolocation.clearWatch(watchId);
+      clearTimeout(movementTimeoutRef.current);
+    };
   }, [follow]);
+
+  // Beregn avstand mellom to koordinater (i meter)
+  function calculateDistance([lat1, lon1], [lat2, lon2]) {
+    const R = 6371e3; // Jordens radius i meter
+    const φ1 = lat1 * Math.PI/180;
+    const φ2 = lat2 * Math.PI/180;
+    const Δφ = (lat2-lat1) * Math.PI/180;
+    const Δλ = (lon2-lon1) * Math.PI/180;
+
+    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+              Math.cos(φ1) * Math.cos(φ2) *
+              Math.sin(Δλ/2) * Math.sin(Δλ/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+    return R * c;
+  }
 
   function isRouteTooLow(routeCoords, vehicleHeight) {
     if (!vehicleHeight) return false;
@@ -116,17 +176,85 @@ function MapView({ vehicle }) {
     getRoute();
   }, [userLocation, destination, vehicle]);
 
+  // Roter kartet basert på retning når vi følger
   useEffect(() => {
-    if (!follow || heading === null) return;
+    if (!follow || heading === null || heading === undefined) return;
+    
     const container = document.querySelector(".leaflet-container");
     if (container) {
-      container.style.transition = "transform 0.3s ease";
+      container.style.transition = "transform 0.6s ease";
+      container.style.transformOrigin = "center center";
       container.style.transform = `rotate(${-heading}deg)`;
     }
+    
     return () => {
-      if (container) container.style.transform = "none";
+      if (!follow && container) {
+        container.style.transform = "none";
+      }
     };
   }, [heading, follow]);
+
+  // Lag custom ikon for brukerposisjon
+  const createUserIcon = () => {
+    const size = isMoving ? 40 : 32;
+    const pulseAnimation = isMoving ? 'animation: pulse 1.5s infinite;' : '';
+    
+    return L.divIcon({
+      className: "user-location-marker",
+      html: `
+        <div style="
+          transform: rotate(${heading}deg);
+          transition: transform 0.3s ease;
+          ${pulseAnimation}
+        ">
+          <div style="
+            width: ${size}px;
+            height: ${size}px;
+            background: #4285f4;
+            border: 3px solid white;
+            border-radius: 50%;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          ">
+            <div style="
+              width: 0;
+              height: 0;
+              border-left: 6px solid transparent;
+              border-right: 6px solid transparent;
+              border-bottom: 12px solid white;
+              transform: translateY(-2px);
+            "></div>
+          </div>
+          ${accuracy && accuracy < 50 ? `
+            <div style="
+              position: absolute;
+              top: 50%;
+              left: 50%;
+              transform: translate(-50%, -50%);
+              width: ${accuracy * 2}px;
+              height: ${accuracy * 2}px;
+              background: rgba(66, 133, 244, 0.1);
+              border: 1px solid rgba(66, 133, 244, 0.3);
+              border-radius: 50%;
+              z-index: -1;
+            "></div>
+          ` : ''}
+        </div>
+        <style>
+          @keyframes pulse {
+            0% { transform: scale(1) rotate(${heading}deg); }
+            50% { transform: scale(1.1) rotate(${heading}deg); }
+            100% { transform: scale(1) rotate(${heading}deg); }
+          }
+        </style>
+      `,
+      iconSize: [size, size],
+      iconAnchor: [size/2, size/2],
+    });
+  };
 
   return (
     <div>
@@ -139,24 +267,48 @@ function MapView({ vehicle }) {
         }}
       />
 
-      {/* Følg meg-knapp */}
-      <button
-        style={{
-          position: "absolute",
-          top: "10px",
-          left: "280px",
-          zIndex: 1000,
-          padding: "8px 12px",
-          backgroundColor: "#007bff",
-          color: "#fff",
-          border: "none",
-          borderRadius: "5px",
-          cursor: "pointer",
-        }}
-        onClick={startFollow}
-      >
-        Følg meg
-      </button>
+      {/* Kontrollknapper */}
+      <div style={{
+        position: "absolute",
+        top: "10px",
+        right: "10px",
+        zIndex: 1000,
+        display: "flex",
+        flexDirection: "column",
+        gap: "8px"
+      }}>
+        <button
+          style={{
+            padding: "10px 12px",
+            backgroundColor: follow ? "#28a745" : "#007bff",
+            color: "#fff",
+            border: "none",
+            borderRadius: "6px",
+            cursor: "pointer",
+            fontSize: "14px",
+            fontWeight: "bold",
+            boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+            transition: "background-color 0.3s ease"
+          }}
+          onClick={follow ? stopFollow : startFollow}
+        >
+          {follow ? "🧭 Følger" : "📍 Følg meg"}
+        </button>
+        
+        {follow && (
+          <div style={{
+            backgroundColor: "rgba(0,0,0,0.7)",
+            color: "white",
+            padding: "6px 10px",
+            borderRadius: "4px",
+            fontSize: "12px",
+            textAlign: "center"
+          }}>
+            {heading !== null ? `${Math.round(heading)}°` : "Ingen retning"}
+            {accuracy && <div>±{Math.round(accuracy)}m</div>}
+          </div>
+        )}
+      </div>
 
       <MapContainer
         center={[59.91, 10.75]}
@@ -165,6 +317,8 @@ function MapView({ vehicle }) {
         whenCreated={(mapInstance) => {
           mapRef.current = mapInstance;
         }}
+        // Deaktiver rotasjon med dobbelttrykk når vi følger
+        doubleClickZoom={!follow}
       >
         <SetMapRef mapRef={mapRef} />
         <TileLayer
@@ -175,17 +329,12 @@ function MapView({ vehicle }) {
         {userLocation && (
           <Marker
             position={userLocation}
-            icon={L.divIcon({
-              className: "user-icon",
-              html: `<div style="transform: rotate(${heading}deg);"><img src="https://cdn-icons-png.flaticon.com/512/447/447031.png" width="32" height="32" /></div>`,
-              iconSize: [32, 32],
-              iconAnchor: [16, 16],
-            })}
+            icon={createUserIcon()}
           />
         )}
 
         {destination && <Marker position={destination} />}
-        {route && <Polyline positions={route} color="blue" />}
+        {route && <Polyline positions={route} color="blue" weight={4} opacity={0.7} />}
         <MapUpdater coords={destination || userLocation} />
       </MapContainer>
     </div>

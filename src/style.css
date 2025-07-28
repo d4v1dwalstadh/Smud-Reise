@@ -12,14 +12,15 @@ html, body, #root {
   z-index: 0;
   position: relative;
   overflow: hidden;
+  transform-origin: center center;
+  transition: transform 0.6s ease;
 }
-
 
 /* Flytt zoomkontrollene til nederst til venstre */
 .leaflet-control-zoom {
   position: absolute;
   left: 20px;
-  top: 740px; /* Viktig for å overstyre eventuell top-verdi */
+  top: 740px;
   z-index: 1000;
 }
 
@@ -43,14 +44,24 @@ html, body, #root {
   z-index: 1000;
   background: white;
   padding: 8px;
-  border-radius: 4px;
+  border-radius: 6px;
   width: 250px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
 }
 
 .search-box input {
   width: 100%;
-  padding: 6px;
+  padding: 8px;
   box-sizing: border-box;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.search-box input:focus {
+  outline: none;
+  border-color: #4285f4;
+  box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.2);
 }
 
 .results {
@@ -59,23 +70,38 @@ html, body, #root {
   margin: 4px 0 0 0;
   max-height: 150px;
   overflow-y: auto;
-  border: 1px solid #ccc;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
 }
 
 .results li {
-  padding: 6px;
+  padding: 8px;
   cursor: pointer;
+  border-bottom: 1px solid #eee;
+  font-size: 14px;
+}
+
+.results li:last-child {
+  border-bottom: none;
 }
 
 .results li:hover {
-  background-color: #eee;
+  background-color: #f5f5f5;
 }
 
-.leaflet-container {
-  transform-origin: center center;
-  transition: transform 0.3s ease;
+/* Custom styling for user location marker */
+.user-location-marker {
+  background: transparent !important;
+  border: none !important;
 }
 
+.leaflet-marker-icon.user-location-marker {
+  background: transparent;
+  border: none;
+}
+
+/* Vehicle input styling */
 .vehicle-input {
   position: absolute;
   top: 10px;
@@ -85,7 +111,7 @@ html, body, #root {
   background-color: white;
   padding: 8px 12px;
   border-radius: 6px;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
   display: flex;
   gap: 12px;
   font-size: 14px;
@@ -97,12 +123,69 @@ html, body, #root {
   flex-direction: column;
   font-weight: bold;
   font-size: 12px;
+  color: #333;
 }
 
 .vehicle-input input {
-  padding: 4px;
+  padding: 4px 6px;
   width: 60px;
   font-size: 14px;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  margin-top: 2px;
 }
 
+.vehicle-input input:focus {
+  outline: none;
+  border-color: #4285f4;
+  box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.1);
+}
 
+/* Animasjoner for smooth opplevelse */
+@keyframes pulse {
+  0% { 
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% { 
+    transform: scale(1.1);
+    opacity: 0.8;
+  }
+  100% { 
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeIn {
+  from { 
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to { 
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Responsivt design for mindre skjermer */
+@media (max-width: 768px) {
+  .vehicle-input {
+    left: 10px;
+    right: 10px;
+    transform: none;
+    width: auto;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  
+  .search-box {
+    width: calc(100% - 20px);
+    max-width: 300px;
+  }
+  
+  .leaflet-control-zoom {
+    top: auto;
+    bottom: 20px;
+  }
+}
