@@ -5,8 +5,7 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   
-  // GitHub Pages base path - VIKTIG: Må matche repository navnet nøyaktig
-  base: '/Smud-Reise/', // Endret til å matche package.json homepage
+  base: '/Smud-Reise/', 
   
   server: {
     port: 5173,
@@ -14,12 +13,11 @@ export default defineConfig({
   
   build: {
     outDir: 'dist',
-    // Legg til disse for bedre GitHub Pages kompatibilitet
     assetsDir: 'assets',
     sourcemap: false, // Reduserer build størrelse
   },
   
-  // Legg til for bedre GitHub Pages support
+  // Bedre GitHub Pages support
   define: {
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'production')
   }
