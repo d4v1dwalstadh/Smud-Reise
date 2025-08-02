@@ -101,6 +101,17 @@ html, body, #root {
   border: none;
 }
 
+/* Custom styling for obstruction markers */
+.obstruction-marker {
+  background: transparent !important;
+  border: none !important;
+}
+
+.leaflet-marker-icon.obstruction-marker {
+  background: transparent;
+  border: none;
+}
+
 /* Vehicle input styling */
 .vehicle-input {
   position: absolute;

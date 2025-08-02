@@ -1,8 +1,9 @@
-import { MapContainer, TileLayer, Marker, Polyline, useMap, } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Polyline, useMap } from "react-leaflet";
 import { useEffect, useState, useRef } from "react";
 import L from "leaflet";
 import SearchBox from "./SearchBox";
-import bridges from "../data/bridges.json";
+import nvdbService from "../data/nvdbService";
+import NVDBDebugger from "./nvdbDebugger"; // Legg til debug-komponenten
 
 const ORS_API_KEY = "5b3ce3597851110001cf6248bd7caf0c7da04779b64619b78105940c";
 
@@ -30,20 +31,26 @@ function MapView({ vehicle }) {
   const [heading, setHeading] = useState(0);
   const [accuracy, setAccuracy] = useState(null);
   const [isMoving, setIsMoving] = useState(false);
+  const [obstructions, setObstructions] = useState([]);
+  const [obstructionsLoading, setObstructionsLoading] = useState(false);
+  const [routeWarning, setRouteWarning] = useState(null);
+  
   const mapRef = useRef();
   const lastPositionRef = useRef(null);
   const movementTimeoutRef = useRef(null);
+  const loadObstructionsTimeoutRef = useRef(null);
+
+  console.log("MapView rendered, vehicle:", vehicle);
 
   const startFollow = () => {
     setFollow(true);
     if (userLocation && mapRef.current) {
-      mapRef.current.flyTo(userLocation, 17); // Litt nærmere zoom når vi følger
+      mapRef.current.flyTo(userLocation, 17);
     }
   };
 
   const stopFollow = () => {
     setFollow(false);
-    // Fjern eventuell rotasjon når vi slutter å følge
     const container = document.querySelector(".leaflet-container");
     if (container) {
       container.style.transform = "none";
@@ -51,20 +58,137 @@ function MapView({ vehicle }) {
     }
   };
 
+  // Last obstruksjoner når kartet flyttes eller kjøretøy endres
   useEffect(() => {
+    const loadObstructionsInView = async () => {
+      if (!mapRef.current || !vehicle?.height) {
+        setObstructions([]);
+        return;
+      }
+      
+      setObstructionsLoading(true);
+      try {
+        const bounds = mapRef.current.getBounds();
+        const bbox = [
+          bounds.getWest(),
+          bounds.getSouth(), 
+          bounds.getEast(),
+          bounds.getNorth()
+        ];
+
+        console.log('Laster obstruksjoner for kjøretøy høyde:', vehicle.height, 'i bbox:', bbox);
+        const obstructionData = await nvdbService.getObstructionsForVehicle(bbox, vehicle.height);
+        
+        setObstructions(obstructionData);
+        console.log(`Lastet ${obstructionData.length} problematiske obstruksjoner`);
+        
+        // Sjekk om ruten går gjennom noen obstruksjoner
+        if (route && obstructionData.length > 0) {
+          checkRouteObstructions(route, obstructionData);
+        }
+        
+      } catch (error) {
+        console.error('Kunne ikke laste obstruksjonsdata:', error);
+        setObstructions([]);
+      } finally {
+        setObstructionsLoading(false);
+      }
+    };
+
+    // Debounce lasting av obstruksjoner
+    clearTimeout(loadObstructionsTimeoutRef.current);
+    loadObstructionsTimeoutRef.current = setTimeout(loadObstructionsInView, 1000);
+    
+    return () => clearTimeout(loadObstructionsTimeoutRef.current);
+  }, [vehicle?.height, userLocation]); // Trigger når kjøretøy eller posisjon endres
+
+  // Last obstruksjoner når kartet flyttes
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    const handleMoveEnd = () => {
+      const loadObstructions = async () => {
+        if (!vehicle?.height) return;
+        
+        setObstructionsLoading(true);
+        try {
+          const bounds = mapRef.current.getBounds();
+          const bbox = [
+            bounds.getWest(),
+            bounds.getSouth(),
+            bounds.getEast(),
+            bounds.getNorth()
+          ];
+
+          const obstructionData = await nvdbService.getObstructionsForVehicle(bbox, vehicle.height);
+          setObstructions(obstructionData);
+          
+          if (route && obstructionData.length > 0) {
+            checkRouteObstructions(route, obstructionData);
+          }
+          
+        } catch (error) {
+          console.error('Feil ved lasting av obstruksjoner:', error);
+        } finally {
+          setObstructionsLoading(false);
+        }
+      };
+
+      clearTimeout(loadObstructionsTimeoutRef.current);
+      loadObstructionsTimeoutRef.current = setTimeout(loadObstructions, 500);
+    };
+
+    mapRef.current.on('moveend', handleMoveEnd);
+    
+    return () => {
+      if (mapRef.current) {
+        mapRef.current.off('moveend', handleMoveEnd);
+      }
+    };
+  }, [vehicle?.height, route]);
+
+  // Sjekk om ruten går gjennom obstruksjoner
+  const checkRouteObstructions = (routeCoords, obstructionList) => {
+    if (!routeCoords || !obstructionList.length) {
+      setRouteWarning(null);
+      return;
+    }
+
+    const problematicObstructions = obstructionList.filter(obs => {
+      if (!obs.coordinates || !obs.isProblematic) return false;
+      
+      // Sjekk om obstruksjonen er nær ruten (forenklet sjekk)
+      return routeCoords.some(routePoint => {
+        const distance = calculateDistance(routePoint, obs.coordinates);
+        return distance < 50; // 50 meter toleranse
+      });
+    });
+
+    if (problematicObstructions.length > 0) {
+      setRouteWarning({
+        count: problematicObstructions.length,
+        obstructions: problematicObstructions
+      });
+    } else {
+      setRouteWarning(null);
+    }
+  };
+
+  useEffect(() => {
+    console.log("Starting geolocation watch...");
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
+        console.log("Position received:", pos.coords);
         const coords = [pos.coords.latitude, pos.coords.longitude];
         
-        // Sjekk om vi beveger oss
         if (lastPositionRef.current) {
           const distance = calculateDistance(lastPositionRef.current, coords);
-          if (distance > 0.5) { // 0.5 meter bevegelse
+          if (distance > 0.5) {
             setIsMoving(true);
             clearTimeout(movementTimeoutRef.current);
             movementTimeoutRef.current = setTimeout(() => {
               setIsMoving(false);
-            }, 3000); // Stopp bevegelse-animasjon etter 3 sekunder
+            }, 3000);
           }
         }
         
@@ -72,12 +196,10 @@ function MapView({ vehicle }) {
         setAccuracy(pos.coords.accuracy);
         lastPositionRef.current = coords;
         
-        // Oppdater retning hvis tilgjengelig
         if (pos.coords.heading !== null && pos.coords.heading !== undefined) {
           setHeading(pos.coords.heading);
         }
         
-        // Følg bruker med smooth animasjon
         if (follow && mapRef.current) {
           const currentZoom = mapRef.current.getZoom();
           mapRef.current.flyTo(coords, Math.max(currentZoom, 16), {
@@ -86,7 +208,11 @@ function MapView({ vehicle }) {
           });
         }
       },
-      (err) => console.error("Geolocation error:", err),
+      (err) => {
+        console.error("Geolocation error:", err);
+        // Sett en standard posisjon (Oslo) hvis geolocation feiler
+        setUserLocation([59.91, 10.75]);
+      },
       { 
         enableHighAccuracy: true, 
         maximumAge: 1000, 
@@ -100,9 +226,8 @@ function MapView({ vehicle }) {
     };
   }, [follow]);
 
-  // Beregn avstand mellom to koordinater (i meter)
   function calculateDistance([lat1, lon1], [lat2, lon2]) {
-    const R = 6371e3; // Jordens radius i meter
+    const R = 6371e3;
     const φ1 = lat1 * Math.PI/180;
     const φ2 = lat2 * Math.PI/180;
     const Δφ = (lat2-lat1) * Math.PI/180;
@@ -116,67 +241,63 @@ function MapView({ vehicle }) {
     return R * c;
   }
 
-  function isRouteTooLow(routeCoords, vehicleHeight) {
-    if (!vehicleHeight) return false;
-    const threshold = 0.001; // ca. 100m radius
-
-    for (let bridge of bridges) {
-      if (bridge.clearance < vehicleHeight) {
-        const [bridgeLat, bridgeLng] = bridge.coordinates;
-        for (let [lat, lng] of routeCoords) {
-          const dLat = Math.abs(lat - bridgeLat);
-          const dLng = Math.abs(lng - bridgeLng);
-          if (dLat < threshold && dLng < threshold) {
-            console.warn("Rute krysser lav bro:", bridge.name);
-            return true;
-          }
-        }
-      }
-    }
-    return false;
-  }
-
   useEffect(() => {
     const getRoute = async () => {
-      if (!userLocation || !destination) return;
-
-      const body = {
-        coordinates: [
-          [userLocation[1], userLocation[0]],
-          [destination[1], destination[0]],
-        ],
-      };
-
-      const res = await fetch(
-        `https://api.openrouteservice.org/v2/directions/driving-car/geojson`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: ORS_API_KEY,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(body),
-        }
-      );
-
-      const data = await res.json();
-      const coords = data.features[0].geometry.coordinates.map(
-        ([lng, lat]) => [lat, lng]
-      );
-
-      const tooLow = isRouteTooLow(coords, vehicle?.height);
-      if (tooLow) {
-        alert("Ruten inneholder en bro som er for lav for kjøretøyet ditt.");
+      if (!userLocation || !destination) {
         setRoute(null);
-      } else {
+        setRouteWarning(null);
+        return;
+      }
+
+      console.log("Getting route from", userLocation, "to", destination);
+
+      try {
+        const body = {
+          coordinates: [
+            [userLocation[1], userLocation[0]],
+            [destination[1], destination[0]],
+          ],
+        };
+
+        const res = await fetch(
+          `https://api.openrouteservice.org/v2/directions/driving-car/geojson`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: ORS_API_KEY,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(body),
+          }
+        );
+
+        if (!res.ok) {
+          throw new Error(`Route API error: ${res.status}`);
+        }
+
+        const data = await res.json();
+        const coords = data.features[0].geometry.coordinates.map(
+          ([lng, lat]) => [lat, lng]
+        );
+
         setRoute(coords);
+        console.log("Route loaded successfully");
+
+        // Sjekk obstruksjoner på ny rute
+        if (obstructions.length > 0) {
+          checkRouteObstructions(coords, obstructions);
+        }
+
+      } catch (error) {
+        console.error('Feil ved ruteberegning:', error);
+        setRoute(null);
+        setRouteWarning(null);
       }
     };
 
     getRoute();
-  }, [userLocation, destination, vehicle]);
+  }, [userLocation, destination, obstructions]);
 
-  // Roter kartet basert på retning når vi følger
   useEffect(() => {
     if (!follow || heading === null || heading === undefined) return;
     
@@ -194,7 +315,6 @@ function MapView({ vehicle }) {
     };
   }, [heading, follow]);
 
-  // Lag custom ikon for brukerposisjon
   const createUserIcon = () => {
     const size = isMoving ? 40 : 32;
     const pulseAnimation = isMoving ? 'animation: pulse 1.5s infinite;' : '';
@@ -228,20 +348,6 @@ function MapView({ vehicle }) {
               transform: translateY(-2px);
             "></div>
           </div>
-          ${accuracy && accuracy < 50 ? `
-            <div style="
-              position: absolute;
-              top: 50%;
-              left: 50%;
-              transform: translate(-50%, -50%);
-              width: ${accuracy * 2}px;
-              height: ${accuracy * 2}px;
-              background: rgba(66, 133, 244, 0.1);
-              border: 1px solid rgba(66, 133, 244, 0.3);
-              border-radius: 50%;
-              z-index: -1;
-            "></div>
-          ` : ''}
         </div>
         <style>
           @keyframes pulse {
@@ -256,18 +362,69 @@ function MapView({ vehicle }) {
     });
   };
 
+  const createObstructionIcon = (obstruction) => {
+    const getIconColor = (type) => {
+      switch (type) {
+        case 'height_restriction': return '#ff4444';
+        case 'tunnel': return '#ff8800';
+        case 'underpass': return '#ff6600';
+        default: return '#cc0000';
+      }
+    };
+
+    const getIconSymbol = (type) => {
+      switch (type) {
+        case 'height_restriction': return '⚠️';
+        case 'tunnel': return '🚇';
+        case 'underpass': return '🌉';
+        default: return '❌';
+      }
+    };
+
+    const color = getIconColor(obstruction.type);
+    const symbol = getIconSymbol(obstruction.type);
+    
+    return L.divIcon({
+      className: "obstruction-marker",
+      html: `
+        <div style="
+          width: 24px;
+          height: 24px;
+          background: ${color};
+          border: 2px solid white;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 12px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+          cursor: pointer;
+        ">
+          ${symbol}
+        </div>
+      `,
+      iconSize: [24, 24],
+      iconAnchor: [12, 12],
+    });
+  };
+
+  console.log("Rendering MapView...");
+
   return (
     <div>
-      {/* Søkefelt */}
+      {/* Debug-komponent for testing (kun i development) */}
+      {process.env.NODE_ENV === 'development' && <NVDBDebugger />}
+      
       <SearchBox
         onSelectPlace={(place) => {
+          console.log("Place selected:", place);
           const [lon, lat] = place.geometry.coordinates;
           setDestination([lat, lon]);
           setFollow(false);
         }}
       />
 
-      {/* Kontrollknapper */}
+      {/* Status panel */}
       <div style={{
         position: "absolute",
         top: "10px",
@@ -275,7 +432,8 @@ function MapView({ vehicle }) {
         zIndex: 1000,
         display: "flex",
         flexDirection: "column",
-        gap: "8px"
+        gap: "8px",
+        maxWidth: "280px"
       }}>
         <button
           style={{
@@ -294,7 +452,70 @@ function MapView({ vehicle }) {
         >
           {follow ? "🧭 Følger" : "📍 Følg meg"}
         </button>
-        
+
+        {/* Vehicle info */}
+        {vehicle?.height && (
+          <div style={{
+            backgroundColor: "white",
+            padding: "8px 10px",
+            borderRadius: "6px",
+            fontSize: "12px",
+            boxShadow: "0 2px 4px rgba(0,0,0,0.2)"
+          }}>
+            <div><strong>Kjøretøy:</strong> {vehicle.height}m høy</div>
+            {obstructionsLoading && (
+              <div style={{ color: '#666', fontSize: '11px' }}>
+                Laster høydebegrensninger...
+              </div>
+            )}
+            {!obstructionsLoading && obstructions.length > 0 && (
+              <div style={{ color: '#d63384', fontSize: '11px' }}>
+                ⚠️ {obstructions.length} problematiske obstruksjoner
+              </div>
+            )}
+            {!obstructionsLoading && obstructions.length === 0 && vehicle.height && (
+              <div style={{ color: '#198754', fontSize: '11px' }}>
+                ✓ Ingen hindringer i området
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Route warning */}
+        {routeWarning && (
+          <div style={{
+            backgroundColor: "#fff3cd",
+            border: "1px solid #ffeaa7",
+            color: "#856404",
+            padding: "8px 10px",
+            borderRadius: "6px",
+            fontSize: "12px",
+            boxShadow: "0 2px 4px rgba(0,0,0,0.1)"
+          }}>
+            <div style={{ fontWeight: "bold" }}>⚠️ Ruteadvarsel</div>
+            <div>
+              {routeWarning.count} hindr{routeWarning.count === 1 ? 'ing' : 'inger'} på ruten
+            </div>
+            <div style={{ fontSize: '10px', marginTop: '4px' }}>
+              Sjekk alternative ruter eller kjøretøyhøyde
+            </div>
+          </div>
+        )}
+
+        {/* Debug info */}
+        <div style={{
+          backgroundColor: "rgba(0,0,0,0.7)",
+          color: "white",
+          padding: "6px 10px",
+          borderRadius: "4px",
+          fontSize: "11px"
+        }}>
+          <div>Posisjon: {userLocation ? 'OK' : 'Venter...'}</div>
+          <div>Destinasjon: {destination ? 'Satt' : 'Ingen'}</div>
+          <div>Rute: {route ? 'Beregnet' : 'Ingen'}</div>
+          <div>Obstruksjoner: {obstructions.length}</div>
+        </div>
+
         {follow && (
           <div style={{
             backgroundColor: "rgba(0,0,0,0.7)",
@@ -308,6 +529,22 @@ function MapView({ vehicle }) {
             {accuracy && <div>±{Math.round(accuracy)}m</div>}
           </div>
         )}
+
+        {/* Obstruction legend */}
+        {obstructions.length > 0 && (
+          <div style={{
+            backgroundColor: "white",
+            padding: "8px 10px",
+            borderRadius: "6px",
+            fontSize: "10px",
+            boxShadow: "0 2px 4px rgba(0,0,0,0.2)"
+          }}>
+            <div style={{ fontWeight: "bold", marginBottom: "4px" }}>Symboler:</div>
+            <div>⚠️ Høydebegrensning</div>
+            <div>🚇 Tunnel</div>
+            <div>🌉 Undergang</div>
+          </div>
+        )}
       </div>
 
       <MapContainer
@@ -315,9 +552,9 @@ function MapView({ vehicle }) {
         zoom={13}
         style={{ height: "100vh" }}
         whenCreated={(mapInstance) => {
+          console.log("Map created:", mapInstance);
           mapRef.current = mapInstance;
         }}
-        // Deaktiver rotasjon med dobbelttrykk når vi følger
         doubleClickZoom={!follow}
       >
         <SetMapRef mapRef={mapRef} />
@@ -334,7 +571,28 @@ function MapView({ vehicle }) {
         )}
 
         {destination && <Marker position={destination} />}
-        {route && <Polyline positions={route} color="blue" weight={4} opacity={0.7} />}
+        
+        {route && (
+          <Polyline 
+            positions={route} 
+            color={routeWarning ? "#ff6b35" : "blue"} 
+            weight={4} 
+            opacity={0.7} 
+          />
+        )}
+
+        {/* Vis obstruksjoner på kartet */}
+        {obstructions.map((obstruction) => (
+          obstruction.coordinates && (
+            <Marker
+              key={obstruction.id}
+              position={obstruction.coordinates}
+              icon={createObstructionIcon(obstruction)}
+              title={`${obstruction.name}: ${obstruction.description}`}
+            />
+          )
+        ))}
+
         <MapUpdater coords={destination || userLocation} />
       </MapContainer>
     </div>
